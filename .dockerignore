@@ -1,0 +1,9 @@
+vendor/
+node_modules/
+.git/
+.env
+storage/logs/*
+storage/app/public/*
+storage/app/pieces_jointes/
+storage/app/pv/
+bootstrap/cache/*.php

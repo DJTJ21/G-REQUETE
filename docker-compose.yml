@@ -1,0 +1,110 @@
+version: '3.8'
+
+networks:
+  sygre_network:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  redis_data:
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: sygre_app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - .:/var/www/html
+      - /var/www/html/public/build
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/local.ini
+    env_file:
+      - .env
+    environment:
+      - APP_ENV=local
+      - APP_DEBUG=true
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+      - redis
+    networks:
+      - sygre_network
+    entrypoint: ["/var/www/html/docker/entrypoint.sh"]
+
+  db:
+    image: mysql:8.0
+    container_name: sygre_db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: sygre_db
+      MYSQL_USER: sygre_user
+      MYSQL_PASSWORD: sygre_pass
+      MYSQL_ROOT_PASSWORD: root_pass
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3307:3306"
+    networks:
+      - sygre_network
+
+  redis:
+    image: redis:alpine
+    container_name: sygre_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6380:6379"
+    networks:
+      - sygre_network
+
+  mailpit:
+    image: axllent/mailpit
+    container_name: sygre_mailpit
+    restart: unless-stopped
+    ports:
+      - "8026:8025"
+      - "1027:1025"
+    networks:
+      - sygre_network
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: sygre_worker
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - .:/var/www/html
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/local.ini
+    env_file:
+      - .env
+    command: ["php", "artisan", "queue:work", "redis", "--sleep=3", "--tries=3", "--timeout=90"]
+    depends_on:
+      - db
+      - redis
+    networks:
+      - sygre_network
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: sygre_scheduler
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - .:/var/www/html
+      - ./docker/php/php.ini:/usr/local/etc/php/conf.d/local.ini
+    env_file:
+      - .env
+    command: ["php", "artisan", "schedule:work"]
+    depends_on:
+      - db
+      - redis
+    networks:
+      - sygre_network
