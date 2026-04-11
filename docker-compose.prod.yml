@@ -1,28 +1,35 @@
-version: '3.8'
-
-# ─────────────────────────────────────────────────────────────────
-#  G-REQUETES — Compose de PRODUCTION
-#  Image Docker Hub : djtj21/g-requete-app:prod
-#  Commande : docker compose -f docker-compose.prod.yml up -d
-# ─────────────────────────────────────────────────────────────────
+# =================================================================
+#  G-REQUETES — Docker Compose PRODUCTION
+#  Image  : djrrm01/g-requete-app:prod  (Docker Hub)
+#  Usage  : docker compose up -d
+#
+#  Au premier démarrage :
+#    • Migrations automatiques
+#    • Seed automatique si base vide (comptes de test inclus)
+#    • Clé APP_KEY générée automatiquement si absente
+# =================================================================
 
 networks:
   sygre_network:
     driver: bridge
 
 volumes:
-  mysql_data:
-  redis_data:
-  storage_data:
+  mysql_data:    # Données MySQL persistantes
+  redis_data:    # Cache Redis persistant
+  storage_data:  # Fichiers uploadés (pièces jointes, PV)
 
 services:
 
-  # ── Application principale ──────────────────────────────────────
+  # ── Application Laravel (web + API) ──────────────────────────
   app:
-    image: djtj21/g-requete-app:prod
+    image: djrrm01/g-requete-app:prod
+    pull_policy: always          # Toujours récupérer la dernière image
     container_name: sygre_app
     restart: unless-stopped
     working_dir: /var/www/html
+    entrypoint: ["/var/www/html/docker/entrypoint.prod.sh"]
+    ports:
+      - "${APP_PORT:-8080}:8080"
     volumes:
       - storage_data:/var/www/html/storage/app
     env_file:
@@ -31,8 +38,6 @@ services:
       APP_ENV: production
       APP_DEBUG: "false"
       LOG_CHANNEL: stderr
-    ports:
-      - "8080:8080"
     depends_on:
       db:
         condition: service_healthy
@@ -40,20 +45,22 @@ services:
         condition: service_started
     networks:
       - sygre_network
-    entrypoint: ["/var/www/html/docker/entrypoint.prod.sh"]
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/login"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/login"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 90s
 
-  # ── Worker (queue) ─────────────────────────────────────────────
+  # ── Worker (traitement des emails en arrière-plan) ────────────
   worker:
-    image: djtj21/g-requete-app:prod
+    image: djrrm01/g-requete-app:prod
+    pull_policy: always
     container_name: sygre_worker
     restart: unless-stopped
     working_dir: /var/www/html
+    command: ["php", "artisan", "queue:work", "redis",
+              "--sleep=3", "--tries=3", "--timeout=90"]
     volumes:
       - storage_data:/var/www/html/storage/app
     env_file:
@@ -62,9 +69,6 @@ services:
       APP_ENV: production
       APP_DEBUG: "false"
       LOG_CHANNEL: stderr
-    command: ["php", "artisan", "queue:work", "redis",
-              "--sleep=3", "--tries=3", "--timeout=90",
-              "--max-jobs=500", "--max-time=3600"]
     depends_on:
       db:
         condition: service_healthy
@@ -73,12 +77,14 @@ services:
     networks:
       - sygre_network
 
-  # ── Scheduler (tâches planifiées) ─────────────────────────────
+  # ── Scheduler (fermeture auto des sessions expirées, etc.) ───
   scheduler:
-    image: djtj21/g-requete-app:prod
+    image: djrrm01/g-requete-app:prod
+    pull_policy: always
     container_name: sygre_scheduler
     restart: unless-stopped
     working_dir: /var/www/html
+    command: ["php", "artisan", "schedule:work"]
     volumes:
       - storage_data:/var/www/html/storage/app
     env_file:
@@ -87,7 +93,6 @@ services:
       APP_ENV: production
       APP_DEBUG: "false"
       LOG_CHANNEL: stderr
-    command: ["php", "artisan", "schedule:work"]
     depends_on:
       db:
         condition: service_healthy
@@ -96,38 +101,34 @@ services:
     networks:
       - sygre_network
 
-  # ── Base de données MySQL ───────────────────────────────────────
+  # ── Base de données MySQL 8 ───────────────────────────────────
   db:
     image: mysql:8.0
     container_name: sygre_db
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: ${DB_DATABASE:-sygre_db}
-      MYSQL_USER: ${DB_USERNAME:-sygre_user}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-sygre_pass}
+      MYSQL_DATABASE:      ${DB_DATABASE:-sygre_db}
+      MYSQL_USER:          ${DB_USERNAME:-sygre_user}
+      MYSQL_PASSWORD:      ${DB_PASSWORD:-sygre_pass}
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root_pass}
     volumes:
       - mysql_data:/var/lib/mysql
-    ports:
-      - "3307:3306"
     networks:
       - sygre_network
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1",
-             "-u", "${DB_USERNAME:-sygre_user}",
-             "-p${DB_PASSWORD:-sygre_pass}"]
+             "-u", "root", "-p${DB_ROOT_PASSWORD:-root_pass}"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 12
       start_period: 30s
 
-  # ── Redis (cache + queues) ─────────────────────────────────────
+  # ── Redis (cache sessions + queues) ──────────────────────────
   redis:
     image: redis:alpine
     container_name: sygre_redis
     restart: unless-stopped
-    command: ["redis-server", "--save", "60", "1",
-              "--loglevel", "warning"]
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
     volumes:
       - redis_data:/data
     networks:
