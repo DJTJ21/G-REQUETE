@@ -10,15 +10,18 @@ echo "[1/7] Fixing storage permissions..."
 chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 
-# ── [2] APP_KEY auto-génération si absent ─────────────────
+# ── [2] APP_KEY auto-génération si absent ou invalide ─────
 echo "[2/7] Checking APP_KEY..."
-if [ -z "$APP_KEY" ] || [ "$APP_KEY" = "base64:" ]; then
-    echo "  APP_KEY absent — génération automatique..."
-    php artisan key:generate --force
-    echo "  APP_KEY généré."
-else
-    echo "  APP_KEY présent."
-fi
+case "$APP_KEY" in
+    base64:????????????????????????????????????????????????)
+        echo "  APP_KEY valide détecté."
+        ;;
+    *)
+        echo "  APP_KEY absent ou invalide — génération automatique..."
+        php artisan key:generate --force
+        echo "  APP_KEY généré."
+        ;;
+esac
 
 # ── [3] Attente MySQL ─────────────────────────────────────
 echo "[3/7] Waiting for MySQL..."
