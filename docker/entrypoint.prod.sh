@@ -12,14 +12,25 @@ chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 
 # ── [2] APP_KEY auto-génération si absent ou invalide ─────
 echo "[2/7] Checking APP_KEY..."
+KEY_FILE="/var/www/html/storage/app/.app_key"
+
 case "$APP_KEY" in
-    base64:????????????????????????????????????????????????)
-        echo "  APP_KEY valide détecté."
+    base64:????????????????????????????????????????????????*)
+        echo "  APP_KEY valide fourni dans .env."
+        echo "$APP_KEY" > "$KEY_FILE"
         ;;
     *)
-        echo "  APP_KEY absent ou invalide — génération automatique..."
-        php artisan key:generate --force
-        echo "  APP_KEY généré."
+        if [ -f "$KEY_FILE" ] && grep -q "^base64:" "$KEY_FILE" 2>/dev/null; then
+            STORED_KEY=$(cat "$KEY_FILE")
+            export APP_KEY="$STORED_KEY"
+            echo "  APP_KEY restauré depuis le volume persistant."
+        else
+            echo "  APP_KEY absent — génération automatique..."
+            GENERATED=$(php -r "echo 'base64:'.base64_encode(random_bytes(32));")
+            export APP_KEY="$GENERATED"
+            echo "$GENERATED" > "$KEY_FILE"
+            echo "  APP_KEY généré et sauvegardé."
+        fi
         ;;
 esac
 

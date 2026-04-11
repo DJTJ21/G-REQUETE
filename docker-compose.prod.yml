@@ -59,6 +59,7 @@ services:
     container_name: sygre_worker
     restart: unless-stopped
     working_dir: /var/www/html
+    entrypoint: ["/var/www/html/docker/entrypoint.worker.sh"]
     command: ["php", "artisan", "queue:work", "redis",
               "--sleep=3", "--tries=3", "--timeout=90"]
     volumes:
@@ -84,6 +85,7 @@ services:
     container_name: sygre_scheduler
     restart: unless-stopped
     working_dir: /var/www/html
+    entrypoint: ["/var/www/html/docker/entrypoint.worker.sh"]
     command: ["php", "artisan", "schedule:work"]
     volumes:
       - storage_data:/var/www/html/storage/app
